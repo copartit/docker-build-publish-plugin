@@ -14,7 +14,7 @@
 
   <properties>
     <revision>1.4.1</revision>
-    <changelist>-SNAPSHOT</changelist>
+    <changelist>-SNAPSHOT-4</changelist>
     <gitHubRepo>jenkinsci/docker-build-publish-plugin</gitHubRepo>
     <jenkins.version>2.263.4</jenkins.version>
   </properties>

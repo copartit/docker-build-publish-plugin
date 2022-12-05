@@ -2,43 +2,15 @@ package com.cloudbees.dockerpublish;
 
 import com.cloudbees.dockerpublish.DockerCLIHelper.InspectImageResponse;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import hudson.DescriptorExtensionList;
-import hudson.EnvVars;
-import hudson.Extension;
-import hudson.FilePath;
-import hudson.Launcher;
-import hudson.Util;
-import hudson.model.BuildListener;
-import hudson.model.Node;
-import hudson.model.AbstractBuild;
-import hudson.model.AbstractProject;
+import hudson.*;
+import hudson.model.*;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.Builder;
-import hudson.tools.ToolDescriptor;
-import hudson.tools.ToolInstallation;
 import hudson.util.FormValidation;
-
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.ObjectStreamException;
-import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import javax.servlet.ServletException;
-
 import org.apache.commons.io.output.TeeOutputStream;
-import org.jenkinsci.plugins.docker.commons.credentials.KeyMaterial;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerRegistryEndpoint;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerServerEndpoint;
+import org.jenkinsci.plugins.docker.commons.credentials.KeyMaterial;
 import org.jenkinsci.plugins.docker.commons.fingerprint.DockerFingerprints;
 import org.jenkinsci.plugins.docker.commons.tools.DockerTool;
 import org.jenkinsci.plugins.tokenmacro.MacroEvaluationException;
@@ -48,6 +20,18 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
+
+import javax.annotation.CheckForNull;
+import javax.annotation.Nonnull;
+import javax.servlet.ServletException;
+import java.io.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 /**
@@ -243,13 +227,21 @@ public class DockerBuilder extends Builder {
 		this.dockerToolName = dockerToolName;
 	}
 
+    private String expandAll(AbstractBuild<?, ?> build, TaskListener listener, String s) throws MacroEvaluationException, IOException, InterruptedException {
+        return TokenMacro.expandAll(build, listener, s);
+    }
+
     /**
      * Fully qualified repository/image name with the registry url in front
+     *
      * @return ie. docker.acme.com/jdoe/busybox
      * @throws IOException
      */
-    public String getRepo() throws IOException {
-        return getRegistry().imageName(repoName);
+    public String getRepo(AbstractBuild<?, ?> build, TaskListener listener) throws IOException, MacroEvaluationException, InterruptedException {
+        logger.log(Level.FINE, "Before expanding/interpolating variables, getRepo() is trying to use to build full image name with " + repoName);
+        String expandedRepoName = expandAll(build, listener, repoName);
+        logger.log(Level.FINE, "After expanding/interpolating variables, getRepo() is trying to use to build full image name with " + expandedRepoName);
+        return getRegistry().imageName(expandedRepoName);
     }
 
 
@@ -330,13 +322,15 @@ public class DockerBuilder extends Builder {
         private List<ImageTag> getImageTags() throws MacroEvaluationException, IOException, InterruptedException {
             List<ImageTag> tags = new ArrayList<ImageTag>();
             if (!defined(getRepoTag())) {
-                tags.add(new ImageTag(expandAll(getRepo())));
+                tags.add(new ImageTag(getRepo(build, listener)));
             } else {
                 for (String rt : expandAll(getRepoTag()).trim().split(",")) {
-                    tags.add(new ImageTag(expandAll(getRepo()), expandAll(rt)));
+                    String imageTag = getRepo(build, listener);
+                    // listener.getLogger().println("After expanding/interpolating variables imageTag is " + imageTag);
+                    tags.add(new ImageTag(imageTag, expandAll(rt)));
                 }
                 if (!isSkipTagLatest()) {
-                    tags.add(new ImageTag(expandAll(getRepo()), "latest"));
+                    tags.add(new ImageTag(getRepo(build, listener), "latest"));
                 }
             }
             return tags;
@@ -349,7 +343,7 @@ public class DockerBuilder extends Builder {
             }
             List<String> result = new ArrayList<String>();
             for (ImageTag imageTag : getImageTags()) {
-                result.add("tag " + (isForceTag() ? "--force=true " : "") + getRepo() + " " + imageTag);
+                result.add("tag " + (isForceTag() ? "--force=true " : "") + getRepo(build, listener) + " " + imageTag);
             }
             return executeCmd(result);
         }
@@ -618,7 +612,7 @@ public class DockerBuilder extends Builder {
         }
 
         public boolean isApplicable(Class<? extends AbstractProject> aClass) {
-            // Indicates that this builder can be used with all kinds of project types 
+            // Indicates that this builder can be used with all kinds of project types
             return true;
         }
 
